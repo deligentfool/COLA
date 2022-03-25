@@ -1,4 +1,3 @@
-from audioop import bias
 import torch as th
 import torch.nn as nn
 import torch.nn.functional as F
@@ -6,12 +5,16 @@ import numpy as np
 
 
 class QMixer(nn.Module):
-    def __init__(self, args):
+    def __init__(self, args, state_dim=None):
         super(QMixer, self).__init__()
 
         self.args = args
         self.n_agents = args.n_agents
-        self.state_dim = int(np.prod(args.state_shape))
+        if state_dim is None:
+            self.state_dim = int(np.prod(args.state_shape))
+        else:
+            self.state_dim = state_dim
+
         self.embed_dim = args.mixing_embed_dim
 
         if getattr(args, "hypernet_layers", 1) == 1:
@@ -38,21 +41,10 @@ class QMixer(nn.Module):
                                nn.ReLU(),
                                nn.Linear(self.embed_dim, 1))
 
-        self.latent_states_encoder = nn.Linear(self.args.perceive_dim + 1, self.args.latent_states_embedding_dim, bias=False)
-        self.latent_transformer = nn.Sequential(
-            nn.Linear(self.args.latent_states_embedding_dim * self.args.n_agents, self.embed_dim),
-            nn.ReLU(),
-            nn.Linear(self.embed_dim, self.args.n_agents)
-        )
-
-    def forward(self, agent_qs, states, latent_states):
+    def forward(self, agent_qs, states):
         bs = agent_qs.size(0)
         states = states.reshape(-1, self.state_dim)
-        latent_states_embedding = self.latent_states_encoder(latent_states)
-        latent_states_embedding = latent_states_embedding.reshape(-1, 1, self.args.latent_states_embedding_dim * self.args.n_agents)
-        latent_weight = th.sigmoid(self.latent_transformer(latent_states_embedding))
         agent_qs = agent_qs.view(-1, 1, self.n_agents)
-        agent_qs = agent_qs * latent_weight
         # First layer
         w1 = th.abs(self.hyper_w_1(states))
         b1 = self.hyper_b_1(states)

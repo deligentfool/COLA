@@ -93,27 +93,10 @@ class CQLearner:
             target_max_qvals = target_mac_out.max(dim=3)[0]
 
         
-        with th.no_grad():
-            mixing_state_projection = self.mac.perceive.calc_teacher(inputs)
-            mixing_state_projection_l = F.normalize(mixing_state_projection, dim=-1)
-            mixing_state_projection_z = F.softmax(mixing_state_projection_l - self.mac.obs_center, dim=-1)
-            latent_state_id = mixing_state_projection_z.detach().max(-1)[1]
-            latent_state_id[batch['alive_allies'] == 0] = self.args.perceive_dim
-            latent_state_onehot = th.zeros(*latent_state_id.size(), self.args.perceive_dim + 1).cuda().scatter_(-1, latent_state_id.unsqueeze(-1), 1)
-
-            latent_state_id_count = ((latent_state_onehot[:, :-1] * mask.unsqueeze(dim=-1)).sum([0, 1, 2]) > 0).sum().float()
-
-            target_mixing_state_projection = self.target_mac.perceive.calc_teacher(inputs)
-            target_mixing_state_projection_l = F.normalize(target_mixing_state_projection, dim=-1)
-            target_mixing_state_projection_z = F.softmax(target_mixing_state_projection_l - self.target_mac.obs_center, dim=-1)
-            target_latent_state_id = target_mixing_state_projection_z.detach().max(-1)[1]
-            target_latent_state_id[batch['alive_allies'] == 0] = self.args.perceive_dim
-            target_latent_state_onehot = th.zeros(*target_latent_state_id.size(), self.args.perceive_dim + 1).cuda().scatter_(-1, target_latent_state_id.unsqueeze(-1), 1)
-
         # Mix
         if self.mixer is not None:
-            chosen_action_qvals = self.mixer(chosen_action_qvals, batch['state'][:, :-1], latent_state_onehot[:, :-1])
-            target_max_qvals = self.target_mixer(target_max_qvals, batch['state'][:, 1:], target_latent_state_onehot[:, 1:])
+            chosen_action_qvals = self.mixer(chosen_action_qvals, batch['state'][:, :-1])
+            target_max_qvals = self.target_mixer(target_max_qvals, batch['state'][:, 1:])
             
 
         # Calculate 1-step Q-Learning targets

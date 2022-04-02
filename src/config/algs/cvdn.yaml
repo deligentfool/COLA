@@ -12,8 +12,8 @@ buffer_size: 5000
 
 # update the target network every {} episodes
 target_update_interval: 200
-perceive_train_freq: 4
-latent_states_embedding_dim: 8
+perceive_train_freq: 1
+perceive_embedding_dim: 8
 
 # use the Q_Learner to train
 agent_output_type: "q"

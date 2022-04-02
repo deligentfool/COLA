@@ -93,10 +93,28 @@ class CQLearner:
             target_max_qvals = target_mac_out.max(dim=3)[0]
 
         
+        with th.no_grad():
+            mixing_state_projection = self.mac.perceive.calc_teacher(inputs)
+            mixing_state_projection_l = F.normalize(mixing_state_projection, dim=-1)
+            mixing_state_projection_z = F.softmax(mixing_state_projection_l - self.mac.obs_center, dim=-1)
+            mixing_state_projection_z = mixing_state_projection_z * batch['alive_allies'].unsqueeze(-1)
+            latent_state_id = mixing_state_projection_z.sum(-2).detach().max(-1)[1]
+            latent_state_onehot = th.zeros(*latent_state_id.size(), self.args.perceive_dim).cuda().scatter_(-1, latent_state_id.unsqueeze(-1), 1)
+            latent_state_embedding = self.mac.embedding_net(latent_state_id)
+
+            latent_state_id_count = ((latent_state_onehot[:, :-1]).sum([0, 1]) > 0).sum().float()
+
+            target_mixing_state_projection = self.target_mac.perceive.calc_teacher(inputs)
+            target_mixing_state_projection_l = F.normalize(target_mixing_state_projection, dim=-1)
+            target_mixing_state_projection_z = F.softmax(target_mixing_state_projection_l - self.target_mac.obs_center, dim=-1)
+            target_mixing_state_projection_z = target_mixing_state_projection_z * batch['alive_allies'].unsqueeze(-1)
+            target_latent_state_id = target_mixing_state_projection_z.sum(-2).detach().max(-1)[1]
+            target_latent_state_embedding = self.target_mac.embedding_net(target_latent_state_id)
+
         # Mix
         if self.mixer is not None:
-            chosen_action_qvals = self.mixer(chosen_action_qvals, batch['state'][:, :-1])
-            target_max_qvals = self.target_mixer(target_max_qvals, batch['state'][:, 1:])
+            chosen_action_qvals = self.mixer(chosen_action_qvals, batch['state'][:, :-1], latent_state_embedding[:, :-1])
+            target_max_qvals = self.target_mixer(target_max_qvals, batch['state'][:, 1:], target_latent_state_embedding[:, 1:])
             
 
         # Calculate 1-step Q-Learning targets
@@ -128,6 +146,7 @@ class CQLearner:
 
         if t_env - self.log_stats_t >= self.args.learner_log_interval:
             self.logger.log_stat("rl_loss", rl_loss.item(), t_env)
+            self.logger.log_stat("latent_state_id_count", latent_state_id_count.item(), t_env)
             self.logger.log_stat("grad_norm", grad_norm, t_env)
             mask_elems = mask.sum().item()
             self.logger.log_stat("td_error_abs", (masked_td_error.abs().sum().item()/mask_elems), t_env)

@@ -1,5 +1,6 @@
 from modules.agents import REGISTRY as agent_REGISTRY
 from modules.perceive.perceive_net import Perceive
+from modules.embedding.embedding_net import Embedding_net
 from components.action_selectors import REGISTRY as action_REGISTRY
 import torch as th
 import numpy as np
@@ -15,6 +16,7 @@ class BasicMAC:
         input_shape = self._get_input_shape(scheme)
         self._build_agents(input_shape)
         self._build_perceive(input_shape)
+        self._build_embedding_net()
         self.agent_output_type = args.agent_output_type
 
         self.action_selector = action_REGISTRY[args.action_selector](args)
@@ -39,8 +41,8 @@ class BasicMAC:
             latent_state_l = F.normalize(latent_state, dim=-1)
             latent_state_id = F.softmax(latent_state_l - self.obs_center, dim=-1).detach().max(-1)[1].unsqueeze(-1)
             latent_state_id[ep_batch['alive_allies'][:, t].reshape(*latent_state_id.size()) == 0] = self.args.perceive_dim
-            latent_state_onehot = th.zeros(latent_state_id.size(0), self.args.perceive_dim + 1).cuda().scatter_(-1, latent_state_id, 1)
-        agent_outs = self.agent.calc_value(latent_state_onehot, self.hidden_states)
+            latent_state_embedding = self.embedding_net(latent_state_id.squeeze(-1))
+        agent_outs = self.agent.calc_value(latent_state_embedding, self.hidden_states)
 
         # Softmax the agent outputs if they're policy logits
         if self.agent_output_type == "pi_logits":
@@ -71,7 +73,7 @@ class BasicMAC:
         self.hidden_states = self.agent.init_hidden().unsqueeze(0).expand(batch_size, self.n_agents, -1)  # bav
 
     def parameters(self):
-        return self.agent.parameters()
+        return list(self.agent.parameters()) + list(self.embedding_net.parameters())
 
     def perceive_update_parameters(self):
         return self.perceive.update_parameters()
@@ -81,6 +83,7 @@ class BasicMAC:
 
     def load_state(self, other_mac):
         self.agent.load_state_dict(other_mac.agent.state_dict())
+        self.embedding_net.load_state_dict(other_mac.embedding_net.state_dict())
 
     def load_perceive_state(self, other_mac):
         self.perceive.load_state_dict(other_mac.perceive.state_dict())
@@ -89,6 +92,7 @@ class BasicMAC:
     def cuda(self):
         self.agent.cuda()
         self.perceive.cuda()
+        self.embedding_net.cuda()
 
     def save_models(self, path):
         th.save(self.agent.state_dict(), "{}/agent.th".format(path))
@@ -100,6 +104,9 @@ class BasicMAC:
 
     def _build_agents(self, input_shape):
         self.agent = agent_REGISTRY[self.args.agent](input_shape, self.args)
+
+    def _build_embedding_net(self):
+        self.embedding_net = Embedding_net(self.args)
 
     def _build_perceive(self, obs_shape):
         state_dim = int(np.prod(self.args.state_shape))

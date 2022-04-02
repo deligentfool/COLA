@@ -14,7 +14,7 @@ class RNNAgent(nn.Module):
         self.fc2 = nn.Linear(args.rnn_hidden_dim * 2, args.n_actions)
 
         self.latent_state_encoder = nn.Sequential(
-            nn.Linear(self.args.perceive_dim + 1, args.rnn_hidden_dim),
+            nn.Linear(args.perceive_embedding_dim, args.rnn_hidden_dim),
             nn.ReLU(),
             nn.Linear(args.rnn_hidden_dim, args.rnn_hidden_dim),
         )

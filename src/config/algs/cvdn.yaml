@@ -13,7 +13,7 @@ buffer_size: 5000
 # update the target network every {} episodes
 target_update_interval: 200
 perceive_train_freq: 1
-perceive_embedding_dim: 8
+perceive_embedding_dim: 4
 
 # use the Q_Learner to train
 agent_output_type: "q"
@@ -26,7 +26,8 @@ hypernet_embed: 32
 
 
 perceive_hidden_dim: 64
-perceive_dim: 32
+perceive_dim: 16
+q_trans: False
 
 tau: 0.996
 center_tau: 0.9

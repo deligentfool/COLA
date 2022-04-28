@@ -37,9 +37,9 @@ class BasicMAC:
         avail_actions = ep_batch["avail_actions"][:, t]
         self.hidden_states = self.agent.calc_hidden(agent_inputs, self.hidden_states)
         with th.no_grad():
-            latent_state = self.perceive.calc_teacher(agent_inputs)
-            latent_state_l = F.normalize(latent_state, dim=-1)
-            latent_state_id = F.softmax(latent_state_l - self.obs_center, dim=-1).detach().max(-1)[1].unsqueeze(-1)
+            latent_state = self.perceive.calc_student(agent_inputs)
+            # latent_state = latent_state - latent_state.max(-1, keepdim=True)[0].detach()
+            latent_state_id = F.softmax(latent_state, dim=-1).detach().max(-1)[1].unsqueeze(-1)
             latent_state_id[ep_batch['alive_allies'][:, t].reshape(*latent_state_id.size()) == 0] = self.args.perceive_dim
             latent_state_embedding = self.embedding_net(latent_state_id.squeeze(-1))
         agent_outs = self.agent.calc_value(latent_state_embedding, self.hidden_states)

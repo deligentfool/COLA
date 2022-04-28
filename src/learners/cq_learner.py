@@ -94,9 +94,9 @@ class CQLearner:
 
         
         with th.no_grad():
-            mixing_state_projection = self.mac.perceive.calc_teacher(inputs)
-            mixing_state_projection_l = F.normalize(mixing_state_projection, dim=-1)
-            mixing_state_projection_z = F.softmax(mixing_state_projection_l - self.mac.obs_center, dim=-1)
+            mixing_state_projection = self.mac.perceive.calc_student(inputs)
+            # mixing_state_projection = mixing_state_projection - mixing_state_projection.max(-1, keepdim=True)[0].detach()
+            mixing_state_projection_z = F.softmax(mixing_state_projection / self.args.online_temp, dim=-1)
             mixing_state_projection_z = mixing_state_projection_z * batch['alive_allies'].unsqueeze(-1)
             latent_state_id = mixing_state_projection_z.sum(-2).detach().max(-1)[1]
             latent_state_onehot = th.zeros(*latent_state_id.size(), self.args.perceive_dim).cuda().scatter_(-1, latent_state_id.unsqueeze(-1), 1)
@@ -104,18 +104,21 @@ class CQLearner:
 
             latent_state_id_count = ((latent_state_onehot[:, :-1]).sum([0, 1]) > 0).sum().float()
 
-            target_mixing_state_projection = self.target_mac.perceive.calc_teacher(inputs)
-            target_mixing_state_projection_l = F.normalize(target_mixing_state_projection, dim=-1)
-            target_mixing_state_projection_z = F.softmax(target_mixing_state_projection_l - self.target_mac.obs_center, dim=-1)
+            target_mixing_state_projection = self.target_mac.perceive.calc_student(inputs)
+            # target_mixing_state_projection = target_mixing_state_projection - target_mixing_state_projection.max(-1, keepdim=True)[0].detach()
+            target_mixing_state_projection_z = F.softmax(target_mixing_state_projection / self.args.online_temp, dim=-1)
             target_mixing_state_projection_z = target_mixing_state_projection_z * batch['alive_allies'].unsqueeze(-1)
             target_latent_state_id = target_mixing_state_projection_z.sum(-2).detach().max(-1)[1]
             target_latent_state_embedding = self.target_mac.embedding_net(target_latent_state_id)
 
         # Mix
         if self.mixer is not None:
-            chosen_action_qvals = self.mixer(chosen_action_qvals, batch['state'][:, :-1], latent_state_embedding[:, :-1])
-            target_max_qvals = self.target_mixer(target_max_qvals, batch['state'][:, 1:], target_latent_state_embedding[:, 1:])
-            
+            if self.args.q_trans:
+                chosen_action_qvals = self.mixer(chosen_action_qvals, batch['state'][:, :-1], latent_state_embedding[:, :-1])
+                target_max_qvals = self.target_mixer(target_max_qvals, batch['state'][:, 1:], target_latent_state_embedding[:, 1:])
+            else:
+                chosen_action_qvals = self.mixer(chosen_action_qvals, batch['state'][:, :-1])
+                target_max_qvals = self.target_mixer(target_max_qvals, batch['state'][:, 1:])
 
         # Calculate 1-step Q-Learning targets
         targets = rewards + self.args.gamma * (1 - terminated) * target_max_qvals
@@ -139,7 +142,6 @@ class CQLearner:
         self.optimiser.step()
 
         if (episode_num - self.last_target_update_episode) / self.args.target_update_interval >= 1.0:
-            self.target_mac.load_perceive_state(self.mac)
             self._update_targets()
             self.last_target_update_episode = episode_num
             
@@ -174,14 +176,18 @@ class CQLearner:
         teacher_obs_projection = self.mac.perceive.calc_teacher(valid_obs)
         real_teacher_obs_projection = self.mac.perceive.calc_teacher(alive_obs)
 
-        online_obs_prediction_l = F.normalize(obs_projection, dim=-1).view(-1, self.args.n_agents, self.args.perceive_dim)
-        target_obs_projection_l = F.normalize(teacher_obs_projection, dim=-1).view(-1, self.args.n_agents, self.args.perceive_dim)
-        real_target_obs_projection_l = F.normalize(real_teacher_obs_projection, dim=-1).view(-1, self.args.perceive_dim)
+        online_obs_prediction = obs_projection.view(-1, self.args.n_agents, self.args.perceive_dim)
+        teacher_obs_projection = teacher_obs_projection.view(-1, self.args.n_agents, self.args.perceive_dim)
+        real_teacher_obs_projection = real_teacher_obs_projection.view(-1, self.args.perceive_dim).detach()
 
-        online_obs_prediction_z = F.softmax(online_obs_prediction_l / self.args.online_temp, dim=-1)
-        target_obs_projection_z = F.softmax((target_obs_projection_l - self.mac.obs_center.detach()) / self.args.target_temp, dim=-1)
+        # online_obs_prediction = online_obs_prediction - online_obs_prediction.max(dim=-1, keepdim=True)[0].detach()
+        centering_teacher_obs_projection = teacher_obs_projection - self.mac.obs_center.detach()
+        # centering_teacher_obs_projection = centering_teacher_obs_projection - centering_teacher_obs_projection.max(dim=-1, keepdim=True)[0].detach()
+
+        online_obs_prediction_sharp = online_obs_prediction / self.args.online_temp
+        target_obs_projection_z = F.softmax(centering_teacher_obs_projection / self.args.target_temp, dim=-1)
         
-        contrastive_loss = - th.bmm(target_obs_projection_z.detach(), online_obs_prediction_z.log().transpose(1, 2))
+        contrastive_loss = - th.bmm(target_obs_projection_z.detach(), F.log_softmax(online_obs_prediction_sharp, dim=-1).transpose(1, 2))
 
         contrastive_mask = th.masked_select(alive_mask.flatten().unsqueeze(-1), valid_obs_mask).view(-1, self.args.n_agents)
         contrastive_mask = contrastive_mask.unsqueeze(-1)
@@ -196,8 +202,10 @@ class CQLearner:
         grad_norm = th.nn.utils.clip_grad_norm_(self.perceive_params, self.args.grad_norm_clip)
         self.perceive_optimiser.step()
 
-        self.mac.obs_center = (self.args.center_tau * self.mac.obs_center + (1 - self.args.center_tau) * real_target_obs_projection_l.mean(0, keepdim=True)).detach()
+        self.mac.obs_center = (self.args.center_tau * self.mac.obs_center + (1 - self.args.center_tau) * real_teacher_obs_projection.mean(0, keepdim=True)).detach()
         self.mac.perceive.update()
+        self.target_mac.load_perceive_state(self.mac)
+
 
         if t_env - self.log_stats_t >= self.args.learner_log_interval:
             self.logger.log_stat("co_loss", contrastive_loss.item(), t_env)

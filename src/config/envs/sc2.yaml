@@ -26,7 +26,7 @@ env_args:
   state_last_action: True
   state_timestep_number: False
   step_mul: 8
-  seed: 5555
+  seed: 7777
   heuristic_ai: False
   heuristic_rest: False
   debug: False

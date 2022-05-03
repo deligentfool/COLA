@@ -34,4 +34,4 @@ center_tau: 0.9
 online_temp: 0.1
 target_temp: 0.04
 
-name: "cvdn"
+name: "cola"

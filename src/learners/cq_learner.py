@@ -142,6 +142,7 @@ class CQLearner:
         self.optimiser.step()
 
         if (episode_num - self.last_target_update_episode) / self.args.target_update_interval >= 1.0:
+            self.target_mac.load_perceive_state(self.mac)
             self._update_targets()
             self.last_target_update_episode = episode_num
             
@@ -204,7 +205,6 @@ class CQLearner:
 
         self.mac.obs_center = (self.args.center_tau * self.mac.obs_center + (1 - self.args.center_tau) * real_teacher_obs_projection.mean(0, keepdim=True)).detach()
         self.mac.perceive.update()
-        self.target_mac.load_perceive_state(self.mac)
 
 
         if t_env - self.log_stats_t >= self.args.learner_log_interval:

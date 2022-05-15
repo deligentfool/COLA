@@ -82,6 +82,58 @@ class CQLearner:
         # Mask out unavailable actions
         target_mac_out[avail_actions[:, 1:] == 0] = -9999999
 
+
+        # origin_obs = inputs[:, :-1].reshape(batch.batch_size * (batch.max_seq_length - 1) * self.args.n_agents, -1)
+        origin_obs = hidden_states[:, :-1].reshape(batch.batch_size * (batch.max_seq_length - 1) * self.args.n_agents, -1).detach()
+
+        alive_mask = batch['alive_allies'][:, :-1]
+        alive_mask[:, 1:] = alive_mask[:, 1:] * (1 - terminated[:, :-1])
+        valid_state_mask = (alive_mask.sum(-1, keepdim=True) > 0).flatten(start_dim=0, end_dim=1).bool()
+        valid_obs_mask = valid_state_mask.unsqueeze(-1).repeat([1, self.args.n_agents, 1]).flatten(0, 1).bool()
+        alive_obs_mask = alive_mask.flatten(0, 2).bool().unsqueeze(-1)
+
+        valid_obs = th.masked_select(origin_obs, valid_obs_mask).view(-1, origin_obs.size()[-1])
+        alive_obs = th.masked_select(origin_obs, alive_obs_mask).view(-1, origin_obs.size()[-1])
+        
+        obs_projection = self.mac.perceive.calc_student(valid_obs)
+        teacher_obs_projection = self.mac.perceive.calc_teacher(valid_obs)
+        real_teacher_obs_projection = self.mac.perceive.calc_teacher(alive_obs)
+
+        online_obs_prediction = obs_projection.view(-1, self.args.n_agents, self.args.perceive_dim)
+        teacher_obs_projection = teacher_obs_projection.view(-1, self.args.n_agents, self.args.perceive_dim)
+        real_teacher_obs_projection = real_teacher_obs_projection.view(-1, self.args.perceive_dim).detach()
+
+        # online_obs_prediction = online_obs_prediction - online_obs_prediction.max(dim=-1, keepdim=True)[0].detach()
+        centering_teacher_obs_projection = teacher_obs_projection - self.mac.obs_center.detach()
+        # centering_teacher_obs_projection = centering_teacher_obs_projection - centering_teacher_obs_projection.max(dim=-1, keepdim=True)[0].detach()
+
+        online_obs_prediction_sharp = online_obs_prediction / self.args.online_temp
+        target_obs_projection_z = F.softmax(centering_teacher_obs_projection / self.args.target_temp, dim=-1)
+        
+        contrastive_loss = - th.bmm(target_obs_projection_z.detach(), F.log_softmax(online_obs_prediction_sharp, dim=-1).transpose(1, 2))
+
+        contrastive_mask = th.masked_select(alive_mask.flatten().unsqueeze(-1), valid_obs_mask).view(-1, self.args.n_agents)
+        contrastive_mask = contrastive_mask.unsqueeze(-1)
+        contrastive_mask = th.bmm(contrastive_mask, contrastive_mask.transpose(1, 2))
+        contrastive_mask = contrastive_mask * (1 - th.diag_embed(th.ones(self.args.n_agents))).unsqueeze(0).to(contrastive_mask.device)
+
+        contrastive_loss = (contrastive_loss * contrastive_mask).sum() / contrastive_mask.sum()
+
+        # Optimise
+        self.perceive_optimiser.zero_grad()
+        contrastive_loss.backward()
+        grad_norm = th.nn.utils.clip_grad_norm_(self.perceive_params, self.args.grad_norm_clip)
+        self.perceive_optimiser.step()
+
+        self.mac.obs_center = (self.args.center_tau * self.mac.obs_center + (1 - self.args.center_tau) * real_teacher_obs_projection.mean(0, keepdim=True)).detach()
+        self.mac.perceive.update()
+
+
+        if t_env - self.log_stats_t >= self.args.learner_log_interval:
+            self.logger.log_stat("co_loss", contrastive_loss.item(), t_env)
+
+
+
         # Max over target Q-Values
         if self.args.double_q:
             # Get actions that maximise live Q (for double q-learning)
@@ -94,7 +146,7 @@ class CQLearner:
 
         
         with th.no_grad():
-            mixing_state_projection = self.mac.perceive.calc_student(inputs)
+            mixing_state_projection = self.mac.perceive.calc_student(hidden_states)
             # mixing_state_projection = mixing_state_projection - mixing_state_projection.max(-1, keepdim=True)[0].detach()
             mixing_state_projection_z = F.softmax(mixing_state_projection / self.args.online_temp, dim=-1)
             mixing_state_projection_z = mixing_state_projection_z * batch['alive_allies'].unsqueeze(-1)
@@ -104,7 +156,7 @@ class CQLearner:
 
             latent_state_id_count = ((latent_state_onehot[:, :-1]).sum([0, 1]) > 0).sum().float()
 
-            target_mixing_state_projection = self.target_mac.perceive.calc_student(inputs)
+            target_mixing_state_projection = self.target_mac.perceive.calc_student(target_hidden_states)
             # target_mixing_state_projection = target_mixing_state_projection - target_mixing_state_projection.max(-1, keepdim=True)[0].detach()
             target_mixing_state_projection_z = F.softmax(target_mixing_state_projection / self.args.online_temp, dim=-1)
             target_mixing_state_projection_z = target_mixing_state_projection_z * batch['alive_allies'].unsqueeze(-1)
@@ -157,58 +209,6 @@ class CQLearner:
             self.logger.log_stat("target_mean", (targets * mask).sum().item()/(mask_elems * self.args.n_agents), t_env)
             self.log_stats_t = t_env
 
-    def train_perceive(self, batch: EpisodeBatch, t_env: int, episode_num: int):
-        inputs = self._build_inputs(batch)
-        terminated = batch["terminated"][:, :-1].float()
-
-        origin_obs = inputs[:, :-1].reshape(batch.batch_size * (batch.max_seq_length - 1) * self.args.n_agents, -1)
-        # origin_obs = hidden_states[:, :-1].reshape(batch.batch_size * (batch.max_seq_length - 1) * self.args.n_agents, -1).detach()
-
-        alive_mask = batch['alive_allies'][:, :-1]
-        alive_mask[:, 1:] = alive_mask[:, 1:] * (1 - terminated[:, :-1])
-        valid_state_mask = (alive_mask.sum(-1, keepdim=True) > 0).flatten(start_dim=0, end_dim=1).bool()
-        valid_obs_mask = valid_state_mask.unsqueeze(-1).repeat([1, self.args.n_agents, 1]).flatten(0, 1).bool()
-        alive_obs_mask = alive_mask.flatten(0, 2).bool().unsqueeze(-1)
-
-        valid_obs = th.masked_select(origin_obs, valid_obs_mask).view(-1, origin_obs.size()[-1])
-        alive_obs = th.masked_select(origin_obs, alive_obs_mask).view(-1, origin_obs.size()[-1])
-        
-        obs_projection = self.mac.perceive.calc_student(valid_obs)
-        teacher_obs_projection = self.mac.perceive.calc_teacher(valid_obs)
-        real_teacher_obs_projection = self.mac.perceive.calc_teacher(alive_obs)
-
-        online_obs_prediction = obs_projection.view(-1, self.args.n_agents, self.args.perceive_dim)
-        teacher_obs_projection = teacher_obs_projection.view(-1, self.args.n_agents, self.args.perceive_dim)
-        real_teacher_obs_projection = real_teacher_obs_projection.view(-1, self.args.perceive_dim).detach()
-
-        # online_obs_prediction = online_obs_prediction - online_obs_prediction.max(dim=-1, keepdim=True)[0].detach()
-        centering_teacher_obs_projection = teacher_obs_projection - self.mac.obs_center.detach()
-        # centering_teacher_obs_projection = centering_teacher_obs_projection - centering_teacher_obs_projection.max(dim=-1, keepdim=True)[0].detach()
-
-        online_obs_prediction_sharp = online_obs_prediction / self.args.online_temp
-        target_obs_projection_z = F.softmax(centering_teacher_obs_projection / self.args.target_temp, dim=-1)
-        
-        contrastive_loss = - th.bmm(target_obs_projection_z.detach(), F.log_softmax(online_obs_prediction_sharp, dim=-1).transpose(1, 2))
-
-        contrastive_mask = th.masked_select(alive_mask.flatten().unsqueeze(-1), valid_obs_mask).view(-1, self.args.n_agents)
-        contrastive_mask = contrastive_mask.unsqueeze(-1)
-        contrastive_mask = th.bmm(contrastive_mask, contrastive_mask.transpose(1, 2))
-        contrastive_mask = contrastive_mask * (1 - th.diag_embed(th.ones(self.args.n_agents))).unsqueeze(0).to(contrastive_mask.device)
-
-        contrastive_loss = (contrastive_loss * contrastive_mask).sum() / contrastive_mask.sum()
-
-        # Optimise
-        self.perceive_optimiser.zero_grad()
-        contrastive_loss.backward()
-        grad_norm = th.nn.utils.clip_grad_norm_(self.perceive_params, self.args.grad_norm_clip)
-        self.perceive_optimiser.step()
-
-        self.mac.obs_center = (self.args.center_tau * self.mac.obs_center + (1 - self.args.center_tau) * real_teacher_obs_projection.mean(0, keepdim=True)).detach()
-        self.mac.perceive.update()
-
-
-        if t_env - self.log_stats_t >= self.args.learner_log_interval:
-            self.logger.log_stat("co_loss", contrastive_loss.item(), t_env)
 
 
     def _update_targets(self):

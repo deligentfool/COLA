@@ -178,8 +178,6 @@ def run_sequential(args, logger):
             if episode_sample.device != args.device:
                 episode_sample.to(args.device)
 
-            if episode % args.perceive_train_freq == 0:
-                learner.train_perceive(episode_sample, runner.t_env, episode)
             learner.train(episode_sample, runner.t_env, episode)
 
         # Execute test runs once in a while

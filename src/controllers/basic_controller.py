@@ -97,10 +97,12 @@ class BasicMAC:
     def save_models(self, path):
         th.save(self.agent.state_dict(), "{}/agent.th".format(path))
         th.save(self.perceive.state_dict(), "{}/perceive.th".format(path))
+        th.save(self.embedding_net.state_dict(), "{}/embedding.th".format(path))
 
     def load_models(self, path):
         self.agent.load_state_dict(th.load("{}/agent.th".format(path), map_location=lambda storage, loc: storage))
         self.perceive.load_state_dict(th.load("{}/perceive.th".format(path), map_location=lambda storage, loc: storage))
+        self.embedding_net.load_state_dict(th.load("{}/embedding.th".format(path), map_location=lambda storage, loc: storage))
 
     def _build_agents(self, input_shape):
         self.agent = agent_REGISTRY[self.args.agent](input_shape, self.args)

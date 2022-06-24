@@ -82,9 +82,10 @@ class CQLearner:
         # Mask out unavailable actions
         target_mac_out[avail_actions[:, 1:] == 0] = -9999999
 
-
-        # origin_obs = inputs[:, :-1].reshape(batch.batch_size * (batch.max_seq_length - 1) * self.args.n_agents, -1)
-        origin_obs = hidden_states[:, :-1].reshape(batch.batch_size * (batch.max_seq_length - 1) * self.args.n_agents, -1).detach()
+        if self.args.input == 'hidden':
+            origin_obs = hidden_states[:, :-1].reshape(batch.batch_size * (batch.max_seq_length - 1) * self.args.n_agents, -1).detach()
+        elif self.args.input == 'obs':
+            origin_obs = inputs[:, :-1].reshape(batch.batch_size * (batch.max_seq_length - 1) * self.args.n_agents, -1)
 
         alive_mask = batch['alive_allies'][:, :-1]
         alive_mask[:, 1:] = alive_mask[:, 1:] * (1 - terminated[:, :-1])
@@ -146,7 +147,10 @@ class CQLearner:
 
         
         with th.no_grad():
-            mixing_state_projection = self.mac.perceive.calc_student(hidden_states)
+            if self.args.input == 'hidden':
+                mixing_state_projection = self.mac.perceive.calc_student(hidden_states)
+            elif self.args.input == 'obs':
+                mixing_state_projection = self.mac.perceive.calc_student(inputs)
             # mixing_state_projection = mixing_state_projection - mixing_state_projection.max(-1, keepdim=True)[0].detach()
             mixing_state_projection_z = F.softmax(mixing_state_projection / self.args.online_temp, dim=-1)
             mixing_state_projection_z = mixing_state_projection_z * batch['alive_allies'].unsqueeze(-1)
@@ -156,7 +160,10 @@ class CQLearner:
 
             latent_state_id_count = ((latent_state_onehot[:, :-1]).sum([0, 1]) > 0).sum().float()
 
-            target_mixing_state_projection = self.target_mac.perceive.calc_student(target_hidden_states)
+            if self.args.input == 'hidden':
+                target_mixing_state_projection = self.target_mac.perceive.calc_student(target_hidden_states)
+            elif self.args.input == 'obs':
+                target_mixing_state_projection = self.target_mac.perceive.calc_student(inputs)
             # target_mixing_state_projection = target_mixing_state_projection - target_mixing_state_projection.max(-1, keepdim=True)[0].detach()
             target_mixing_state_projection_z = F.softmax(target_mixing_state_projection / self.args.online_temp, dim=-1)
             target_mixing_state_projection_z = target_mixing_state_projection_z * batch['alive_allies'].unsqueeze(-1)

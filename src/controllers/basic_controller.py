@@ -15,7 +15,10 @@ class BasicMAC:
         self.args = args
         input_shape = self._get_input_shape(scheme)
         self._build_agents(input_shape)
-        self._build_perceive(self.args.rnn_hidden_dim)
+        if self.args.input == 'hidden':
+            self._build_perceive(self.args.rnn_hidden_dim)
+        elif self.args.input == 'obs':
+            self._build_perceive(input_shape)
         self._build_embedding_net()
         self.agent_output_type = args.agent_output_type
 
@@ -37,7 +40,11 @@ class BasicMAC:
         avail_actions = ep_batch["avail_actions"][:, t]
         self.hidden_states = self.agent.calc_hidden(agent_inputs, self.hidden_states)
         with th.no_grad():
-            latent_state = self.perceive.calc_student(self.hidden_states)
+            if self.args.input == 'hidden':
+                latent_state = self.perceive.calc_student(self.hidden_states)
+            elif self.args.input == 'obs':
+                latent_state = self.perceive.calc_student(agent_inputs)
+
             # latent_state = latent_state - latent_state.max(-1, keepdim=True)[0].detach()
             latent_state_id = F.softmax(latent_state, dim=-1).detach().max(-1)[1].unsqueeze(-1)
             latent_state_id[ep_batch['alive_allies'][:, t].reshape(*latent_state_id.size()) == 0] = self.args.perceive_dim

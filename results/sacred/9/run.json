@@ -1,0 +1,115 @@
+{
+  "artifacts": [],
+  "command": "my_main",
+  "experiment": {
+    "base_dir": "/home/xzw/COLA/src",
+    "dependencies": [
+      "munch==2.5.0",
+      "numpy==1.22.3",
+      "PyYAML==6.0",
+      "sacred==0.8.2",
+      "torch==1.8.2+cu111"
+    ],
+    "mainfile": "main.py",
+    "name": "pymarl",
+    "repositories": [
+      {
+        "commit": "b942fb90ba19fe5a8264abf7ac8ed77038023349",
+        "dirty": true,
+        "url": "git@github.com:deligentfool/COLA.git"
+      },
+      {
+        "commit": "b942fb90ba19fe5a8264abf7ac8ed77038023349",
+        "dirty": true,
+        "url": "git@github.com:deligentfool/COLA.git"
+      },
+      {
+        "commit": "b942fb90ba19fe5a8264abf7ac8ed77038023349",
+        "dirty": true,
+        "url": "git@github.com:deligentfool/COLA.git"
+      }
+    ],
+    "sources": [
+      [
+        "main.py",
+        "_sources/main_1ba23c0e780210bc7fb8e8046194af1c.py"
+      ],
+      [
+        "run.py",
+        "_sources/run_4fc79447fb355a7ed0e8bf18de9ec9eb.py"
+      ],
+      [
+        "utils/logging.py",
+        "_sources/logging_38e7c3c11a8722f1c40f9bab14330d30.py"
+      ]
+    ]
+  },
+  "heartbeat": "2022-08-14T08:34:34.467875",
+  "host": {
+    "ENV": {},
+    "cpu": "Intel(R) Xeon(R) Platinum 8280 CPU @ 2.70GHz",
+    "gpus": {
+      "driver_version": "510.54",
+      "gpus": [
+        {
+          "model": "NVIDIA GeForce RTX 3090",
+          "persistence_mode": false,
+          "total_memory": 24576
+        },
+        {
+          "model": "NVIDIA GeForce RTX 3090",
+          "persistence_mode": false,
+          "total_memory": 24576
+        },
+        {
+          "model": "NVIDIA GeForce RTX 3090",
+          "persistence_mode": false,
+          "total_memory": 24576
+        },
+        {
+          "model": "NVIDIA GeForce RTX 3090",
+          "persistence_mode": false,
+          "total_memory": 24576
+        }
+      ]
+    },
+    "hostname": "admin014-SYS-7049GP-TRT",
+    "os": [
+      "Linux",
+      "Linux-5.15.0-43-generic-x86_64-with-glibc2.31"
+    ],
+    "python_version": "3.9.7"
+  },
+  "meta": {
+    "command": "my_main",
+    "options": {
+      "--beat-interval": null,
+      "--capture": null,
+      "--comment": null,
+      "--debug": false,
+      "--enforce_clean": false,
+      "--file_storage": null,
+      "--force": false,
+      "--help": false,
+      "--loglevel": null,
+      "--mongo_db": null,
+      "--name": null,
+      "--pdb": false,
+      "--print-config": false,
+      "--priority": null,
+      "--queue": false,
+      "--s3": null,
+      "--sql": null,
+      "--tiny_db": null,
+      "--unobserved": false,
+      "COMMAND": null,
+      "UPDATE": [],
+      "help": false,
+      "with": false
+    }
+  },
+  "resources": [],
+  "result": null,
+  "start_time": "2022-08-14T08:31:03.918541",
+  "status": "RUNNING"
+}

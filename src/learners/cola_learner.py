@@ -10,14 +10,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-class CQLearner:
+class COLALearner:
     def __init__(self, mac, scheme, logger, args):
         self.args = args
         self.mac = mac
         self.logger = logger
 
         self.params = list(mac.parameters())
-        self.perceive_params = list(mac.perceive_update_parameters())
+        self.consensus_builder_params = list(mac.consensus_builder_update_parameters())
 
         self.last_target_update_episode = 0
 
@@ -33,14 +33,14 @@ class CQLearner:
             self.target_mixer = copy.deepcopy(self.mixer)
 
         self.optimiser = RMSprop(params=self.params, lr=args.lr, alpha=args.optim_alpha, eps=args.optim_eps)
-        self.perceive_optimiser = RMSprop(params=self.perceive_params, lr=args.lr, alpha=args.optim_alpha, eps=args.optim_eps)
+        self.consensus_builder_optimiser = RMSprop(params=self.consensus_builder_params, lr=args.lr, alpha=args.optim_alpha, eps=args.optim_eps)
 
         # a little wasteful to deepcopy (e.g. duplicates action selector), but should work for any MAC
         self.target_mac = copy.deepcopy(mac)
 
         self.log_stats_t = -self.args.learner_log_interval - 1
 
-        
+
 
     def train(self, batch: EpisodeBatch, t_env: int, episode_num: int):
         # Get the relevant quantities
@@ -95,14 +95,14 @@ class CQLearner:
 
         valid_obs = th.masked_select(origin_obs, valid_obs_mask).view(-1, origin_obs.size()[-1])
         alive_obs = th.masked_select(origin_obs, alive_obs_mask).view(-1, origin_obs.size()[-1])
-        
-        obs_projection = self.mac.perceive.calc_student(valid_obs)
-        teacher_obs_projection = self.mac.perceive.calc_teacher(valid_obs)
-        real_teacher_obs_projection = self.mac.perceive.calc_teacher(alive_obs)
 
-        online_obs_prediction = obs_projection.view(-1, self.args.n_agents, self.args.perceive_dim)
-        teacher_obs_projection = teacher_obs_projection.view(-1, self.args.n_agents, self.args.perceive_dim)
-        real_teacher_obs_projection = real_teacher_obs_projection.view(-1, self.args.perceive_dim).detach()
+        obs_projection = self.mac.consensus_builder.calc_student(valid_obs)
+        teacher_obs_projection = self.mac.consensus_builder.calc_teacher(valid_obs)
+        real_teacher_obs_projection = self.mac.consensus_builder.calc_teacher(alive_obs)
+
+        online_obs_prediction = obs_projection.view(-1, self.args.n_agents, self.args.consensus_builder_dim)
+        teacher_obs_projection = teacher_obs_projection.view(-1, self.args.n_agents, self.args.consensus_builder_dim)
+        real_teacher_obs_projection = real_teacher_obs_projection.view(-1, self.args.consensus_builder_dim).detach()
 
         # online_obs_prediction = online_obs_prediction - online_obs_prediction.max(dim=-1, keepdim=True)[0].detach()
         centering_teacher_obs_projection = teacher_obs_projection - self.mac.obs_center.detach()
@@ -110,7 +110,7 @@ class CQLearner:
 
         online_obs_prediction_sharp = online_obs_prediction / self.args.online_temp
         target_obs_projection_z = F.softmax(centering_teacher_obs_projection / self.args.target_temp, dim=-1)
-        
+
         contrastive_loss = - th.bmm(target_obs_projection_z.detach(), F.log_softmax(online_obs_prediction_sharp, dim=-1).transpose(1, 2))
 
         contrastive_mask = th.masked_select(alive_mask.flatten().unsqueeze(-1), valid_obs_mask).view(-1, self.args.n_agents)
@@ -121,13 +121,13 @@ class CQLearner:
         contrastive_loss = (contrastive_loss * contrastive_mask).sum() / contrastive_mask.sum()
 
         # Optimise
-        self.perceive_optimiser.zero_grad()
+        self.consensus_builder_optimiser.zero_grad()
         contrastive_loss.backward()
-        grad_norm = th.nn.utils.clip_grad_norm_(self.perceive_params, self.args.grad_norm_clip)
-        self.perceive_optimiser.step()
+        grad_norm = th.nn.utils.clip_grad_norm_(self.consensus_builder_params, self.args.grad_norm_clip)
+        self.consensus_builder_optimiser.step()
 
         self.mac.obs_center = (self.args.center_tau * self.mac.obs_center + (1 - self.args.center_tau) * real_teacher_obs_projection.mean(0, keepdim=True)).detach()
-        self.mac.perceive.update()
+        self.mac.consensus_builder.update()
 
 
         if t_env - self.log_stats_t >= self.args.learner_log_interval:
@@ -145,25 +145,25 @@ class CQLearner:
         else:
             target_max_qvals = target_mac_out.max(dim=3)[0]
 
-        
+
         with th.no_grad():
             if self.args.input == 'hidden':
-                mixing_state_projection = self.mac.perceive.calc_student(hidden_states)
+                mixing_state_projection = self.mac.consensus_builder.calc_student(hidden_states)
             elif self.args.input == 'obs':
-                mixing_state_projection = self.mac.perceive.calc_student(inputs)
+                mixing_state_projection = self.mac.consensus_builder.calc_student(inputs)
             # mixing_state_projection = mixing_state_projection - mixing_state_projection.max(-1, keepdim=True)[0].detach()
             mixing_state_projection_z = F.softmax(mixing_state_projection / self.args.online_temp, dim=-1)
             mixing_state_projection_z = mixing_state_projection_z * batch['alive_allies'].unsqueeze(-1)
             latent_state_id = mixing_state_projection_z.sum(-2).detach().max(-1)[1]
-            latent_state_onehot = th.zeros(*latent_state_id.size(), self.args.perceive_dim).cuda().scatter_(-1, latent_state_id.unsqueeze(-1), 1)
+            latent_state_onehot = th.zeros(*latent_state_id.size(), self.args.consensus_builder_dim).cuda().scatter_(-1, latent_state_id.unsqueeze(-1), 1)
             latent_state_embedding = self.mac.embedding_net(latent_state_id)
 
             latent_state_id_count = ((latent_state_onehot[:, :-1]).sum([0, 1]) > 0).sum().float()
 
             if self.args.input == 'hidden':
-                target_mixing_state_projection = self.target_mac.perceive.calc_student(target_hidden_states)
+                target_mixing_state_projection = self.target_mac.consensus_builder.calc_student(target_hidden_states)
             elif self.args.input == 'obs':
-                target_mixing_state_projection = self.target_mac.perceive.calc_student(inputs)
+                target_mixing_state_projection = self.target_mac.consensus_builder.calc_student(inputs)
             # target_mixing_state_projection = target_mixing_state_projection - target_mixing_state_projection.max(-1, keepdim=True)[0].detach()
             target_mixing_state_projection_z = F.softmax(target_mixing_state_projection / self.args.online_temp, dim=-1)
             target_mixing_state_projection_z = target_mixing_state_projection_z * batch['alive_allies'].unsqueeze(-1)
@@ -172,12 +172,8 @@ class CQLearner:
 
         # Mix
         if self.mixer is not None:
-            if self.args.q_trans:
-                chosen_action_qvals = self.mixer(chosen_action_qvals, batch['state'][:, :-1], latent_state_embedding[:, :-1])
-                target_max_qvals = self.target_mixer(target_max_qvals, batch['state'][:, 1:], target_latent_state_embedding[:, 1:])
-            else:
-                chosen_action_qvals = self.mixer(chosen_action_qvals, batch['state'][:, :-1])
-                target_max_qvals = self.target_mixer(target_max_qvals, batch['state'][:, 1:])
+            chosen_action_qvals = self.mixer(chosen_action_qvals, batch['state'][:, :-1])
+            target_max_qvals = self.target_mixer(target_max_qvals, batch['state'][:, 1:])
 
         # Calculate 1-step Q-Learning targets
         targets = rewards + self.args.gamma * (1 - terminated) * target_max_qvals
@@ -192,7 +188,7 @@ class CQLearner:
 
         # Normal L2 loss, take mean over actual data
         rl_loss = (masked_td_error ** 2).sum() / rl_mask.sum()
-        
+
 
         # Optimise
         self.optimiser.zero_grad()
@@ -201,10 +197,10 @@ class CQLearner:
         self.optimiser.step()
 
         if (episode_num - self.last_target_update_episode) / self.args.target_update_interval >= 1.0:
-            self.target_mac.load_perceive_state(self.mac)
+            self.target_mac.load_consensus_builder_state(self.mac)
             self._update_targets()
             self.last_target_update_episode = episode_num
-            
+
 
         if t_env - self.log_stats_t >= self.args.learner_log_interval:
             self.logger.log_stat("rl_loss", rl_loss.item(), t_env)

@@ -1,14 +1,9 @@
 # COLA
 
 ## Note
-The implementation of the following methods can also be found in this codebase, which are finished by the authors of [PyMARL](https://github.com/oxwhirl/pymarl):
-- [**QMIX**: QMIX: Monotonic Value Function Factorisation for Deep Multi-Agent Reinforcement Learning](https://arxiv.org/abs/1803.11485)
-- [**COMA**: Counterfactual Multi-Agent Policy Gradients](https://arxiv.org/abs/1705.08926)
-- [**VDN**: Value-Decomposition Networks For Cooperative Multi-Agent Learning](https://arxiv.org/abs/1706.05296) 
-- [**IQL**: Independent Q-Learning](https://arxiv.org/abs/1511.08779)
-- [**QTRAN**: QTRAN: Learning to Factorize with Transformation for Cooperative Multi-Agent Reinforcement Learning](https://arxiv.org/abs/1905.05408)
+COLA is the first work to address the Dec-POMDP problem by integrating contrastive learning into multi-agent reinforcement learning. And we believe the COLA framework is the most cost-effective, bringing remarkable performance improvement with minor changes of reinforcement learning models. Our approach of simply adding a one-hot consensus encoding to the network input can be extended to any other multi-agent reinforcement learning algorithm.
 
-PyMARL is written in PyTorch and uses [SMAC](https://github.com/oxwhirl/smac) as its environment.
+The implementation of the following methods can also be found in this codebase, which are finished by the authors of [PyMARL](https://github.com/oxwhirl/pymarl). PyMARL is written in PyTorch and uses [SMAC](https://github.com/oxwhirl/smac) as its environment.
 
 ## Installation instructions
 
@@ -25,14 +20,21 @@ bash install_sc2.sh
 
 This will download SC2 into the 3rdparty folder and copy the maps necessary to run over.
 
+It is worth noting that we run the all experiments on **SC2.4.6.2.69232**, not easier SC2.4.10. Performance is *not* always comparable between versions.
+
 The requirements.txt file can be used to install the necessary packages into a virtual environment (not recomended).
 
-It is worth noting that we run the all experiments on **SC2.4.6.2.69232**, not SC2.4.10. Performance is *not* always comparable between versions.
+Set up Google Research Football: Please follow the Quick Start in https://github.com/google-research/football.
 
 ## Run an experiment 
 
 ```shell
+python3 src/main.py --config=cola --env-config=sc2 with env_args.map_name=2s3z env_args.seed=1
+```
 
+or
+```shell
+python3 src/main.py --config=cola --env-config=academy_3_vs_1_with_keeper with seed=1
 ```
 
 The config files act as defaults for an algorithm or environment. 

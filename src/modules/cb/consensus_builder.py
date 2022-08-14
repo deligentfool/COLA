@@ -16,26 +16,26 @@ class MLP(nn.Module):
         return self.net(x)
 
 
-class Perceive(nn.Module):
+class ConsensusBuilder(nn.Module):
     def __init__(self, state_dim, obs_dim, args):
-        super(Perceive, self).__init__()
+        super(ConsensusBuilder, self).__init__()
         self.args = args
         self.state_dim = state_dim
         self.obs_dim = obs_dim
-        self.perceive_hidden_dim = self.args.perceive_hidden_dim
-        self.perceive_dim = self.args.perceive_dim
+        self.consensus_builder_hidden_dim = self.args.consensus_builder_hidden_dim
+        self.consensus_builder_dim = self.args.consensus_builder_dim
 
         # * student
-        self.view_obs_net = MLP(self.obs_dim, self.perceive_hidden_dim * 2, self.perceive_hidden_dim)
-        self.project_net = MLP(self.perceive_hidden_dim, self.perceive_hidden_dim, self.perceive_dim)
+        self.view_obs_net = MLP(self.obs_dim, self.consensus_builder_hidden_dim * 2, self.consensus_builder_hidden_dim)
+        self.project_net = MLP(self.consensus_builder_hidden_dim, self.consensus_builder_hidden_dim, self.consensus_builder_dim)
 
         # * teacher
-        self.teacher_view_obs_net = MLP(self.obs_dim, self.perceive_hidden_dim * 2, self.perceive_hidden_dim)
-        self.teacher_project_net = MLP(self.perceive_hidden_dim, self.perceive_hidden_dim, self.perceive_dim)
-        
+        self.teacher_view_obs_net = MLP(self.obs_dim, self.consensus_builder_hidden_dim * 2, self.consensus_builder_hidden_dim)
+        self.teacher_project_net = MLP(self.consensus_builder_hidden_dim, self.consensus_builder_hidden_dim, self.consensus_builder_dim)
+
 
     def calc_student(self, inputs):
-        representation = self.view_obs_net(inputs)    
+        representation = self.view_obs_net(inputs)
         project = self.project_net(representation)
         return project
 
@@ -48,7 +48,7 @@ class Perceive(nn.Module):
     def update(self):
         for param_o, param_t in zip(self.view_obs_net.parameters(), self.teacher_view_obs_net.parameters()):
             param_t.data = param_t.data * self.args.tau + param_o.data * (1. - self.args.tau)
-            
+
         for param_o, param_t in zip(self.project_net.parameters(), self.teacher_project_net.parameters()):
             param_t.data = param_t.data * self.args.tau + param_o.data * (1. - self.args.tau)
 

@@ -38,29 +38,11 @@ class QMixer(nn.Module):
                                nn.ReLU(),
                                nn.Linear(self.embed_dim, 1))
 
-        if self.args.q_trans:
-            self.latent_weight = nn.Sequential(
-                nn.Linear(self.args.perceive_embedding_dim, self.embed_dim),
-                nn.ReLU(),
-                nn.Linear(self.embed_dim, self.args.n_agents),
-            )
 
-            self.latent_bias = nn.Sequential(
-                nn.Linear(self.args.perceive_embedding_dim, self.embed_dim),
-                nn.ReLU(),
-                nn.Linear(self.embed_dim, self.args.n_agents),
-            )
-        
-
-    def forward(self, agent_qs, states, latent_states=None):
+    def forward(self, agent_qs, states):
         bs = agent_qs.size(0)
         states = states.reshape(-1, self.state_dim)
         agent_qs = agent_qs.view(-1, 1, self.n_agents)
-        if self.args.q_trans:
-            latent_states_embedding = self.latent_weight(latent_states).reshape(-1, 1, self.n_agents)
-            latent_weight = th.abs(latent_states_embedding)
-            latent_bias = self.latent_bias(latent_states).reshape(-1, 1, self.n_agents)
-            agent_qs = agent_qs * latent_weight + latent_bias
         # First layer
         w1 = th.abs(self.hyper_w_1(states))
         b1 = self.hyper_b_1(states)

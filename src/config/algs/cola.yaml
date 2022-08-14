@@ -1,4 +1,4 @@
-# --- QMIX specific parameters ---
+# --- COLA specific parameters ---
 
 # use epsilon greedy action selector
 action_selector: "epsilon_greedy"
@@ -6,18 +6,17 @@ epsilon_start: 1.0
 epsilon_finish: 0.05
 epsilon_anneal_time: 50000
 
-runner: "episode"
+# runner: "episode"
 
 buffer_size: 5000
 
 # update the target network every {} episodes
 target_update_interval: 200
-perceive_train_freq: 1
-perceive_embedding_dim: 4
+consensus_builder_embedding_dim: 4
 
 # use the Q_Learner to train
 agent_output_type: "q"
-learner: "cq_learner"
+learner: "cola_learner"
 double_q: True
 mixer: "qmix"
 mixing_embed_dim: 64
@@ -25,9 +24,8 @@ hypernet_layers: 2
 hypernet_embed: 32
 
 
-perceive_hidden_dim: 64
-perceive_dim: 4
-q_trans: False
+consensus_builder_hidden_dim: 64
+consensus_builder_dim: 4
 
 tau: 0.996
 center_tau: 0.9
